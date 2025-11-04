@@ -16,7 +16,7 @@ logger = logging.getLogger("discord_bot")
 # -------------------------
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
-HF_MODEL = os.getenv("HF_MODEL", "tiiuae/falcon-7b-instruct")  # updated model
+HF_MODEL = os.getenv("HF_MODEL", "meta‑llama/Llama‑2‑7b‑chat‑hf")  # updated model
 
 if not DISCORD_TOKEN:
     raise RuntimeError("DISCORD_TOKEN not set")
@@ -111,3 +111,4 @@ async def start_bot():
 
 if __name__ == "__main__":
     asyncio.run(start_bot())
+
