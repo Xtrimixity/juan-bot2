@@ -1,25 +1,18 @@
-# Dockerfile (for python 3.13 base)
+# Use Python 3.13 slim image
 FROM python:3.13-slim
 
-# Create app dir
+# Set working directory
 WORKDIR /app
 
-# Install system deps (if any)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements and install
+# Copy requirements file first to leverage caching
 COPY requirements.txt .
-RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
 
-# Copy code
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the code
 COPY . .
 
-# Use a non-root user (optional)
-RUN useradd -m botuser
-USER botuser
-
-# Run the bot
+# Expose nothing; this is a background worker
+# CMD to run your bot
 CMD ["python", "main.py"]
