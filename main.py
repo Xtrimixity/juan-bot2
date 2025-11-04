@@ -3,7 +3,7 @@ import asyncio
 import logging
 import discord
 from discord.ext import commands
-from huggingface_hub import InferenceClient
+import httpx
 
 # -------------------------
 # Logging
@@ -12,21 +12,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("discord_bot")
 
 # -------------------------
-# Env variables
+# Environment variables
 # -------------------------
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-HF_TOKEN = os.getenv("HF_TOKEN")
-HF_MODEL = os.getenv("HF_MODEL", "meta‑llama/Llama‑2‑7b‑chat‑hf")  # updated model
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "gpt2")  # Replace with your preferred Groq model
 
 if not DISCORD_TOKEN:
     raise RuntimeError("DISCORD_TOKEN not set")
-if not HF_TOKEN:
-    raise RuntimeError("HF_TOKEN not set")
-
-# -------------------------
-# Hugging Face client
-# -------------------------
-hf = InferenceClient(token=HF_TOKEN)
+if not GROQ_API_KEY:
+    raise RuntimeError("GROQ_API_KEY not set")
 
 # -------------------------
 # Discord setup
@@ -39,7 +34,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 CHANNEL_COOLDOWN = 5
 _last_called = {}
 
-def can_call_hf(channel_id: int) -> bool:
+def can_call_ai(channel_id: int) -> bool:
     import time
     last = _last_called.get(channel_id, 0)
     if time.time() - last < CHANNEL_COOLDOWN:
@@ -47,29 +42,36 @@ def can_call_hf(channel_id: int) -> bool:
     _last_called[channel_id] = time.time()
     return True
 
-async def query_hf(prompt: str) -> str:
-    loop = asyncio.get_event_loop()
-
-    def sync_call():
+# -------------------------
+# Groq API call
+# -------------------------
+async def query_groq(prompt: str) -> str:
+    async with httpx.AsyncClient() as client:
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": GROQ_MODEL,
+            "prompt": prompt,
+            "max_output_tokens": 200
+        }
         try:
-            # Hugging Face text_generation: positional prompt argument
-            result = hf.text_generation(prompt, model=HF_MODEL, max_new_tokens=200)
-            if isinstance(result, list) and result:
-                item = result[0]
-                if isinstance(item, dict):
-                    return item.get("generated_text") or str(item)
-                return str(item)
-            return str(result)
-        except StopIteration:
-            return f"[Hugging Face Error] Model '{HF_MODEL}' is not available for inference. Use a model with the Inference API enabled."
+            resp = await client.post("https://api.groq.ai/v1/generate", json=payload, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            # Groq API usually returns something like data["text"] or data["outputs"][0]["content"]
+            if "outputs" in data and data["outputs"]:
+                return data["outputs"][0].get("content", "")
+            elif "text" in data:
+                return data["text"]
+            return str(data)
         except Exception as e:
-            logger.exception("Hugging Face error")
-            return f"[Error from Hugging Face] {e}"
-
-    return await loop.run_in_executor(None, sync_call)
+            logger.exception("Groq API error")
+            return f"[Error from Groq] {e}"
 
 # -------------------------
-# Events
+# Discord events
 # -------------------------
 @bot.event
 async def on_ready():
@@ -81,7 +83,7 @@ async def on_message(message: discord.Message):
         return
 
     if bot.user.mentioned_in(message) and not message.mention_everyone:
-        if not can_call_hf(message.channel.id):
+        if not can_call_ai(message.channel.id):
             await message.reply("⏳ Please wait a few seconds before I can reply again.")
             return
 
@@ -90,11 +92,10 @@ async def on_message(message: discord.Message):
                 "You are Juan, a friendly adult male who believes he is human. "
                 "Respond naturally and politely in the tone of a person named Juan."
             )
-
             user_prompt = message.content.replace(f"<@{bot.user.id}>", "").strip()
-            prompt = f"{system_prompt}\n\nUser said: {user_prompt}\nJuan replies:"
+            full_prompt = f"{system_prompt}\n\nUser said: {user_prompt}\nJuan replies:"
 
-            response = await query_hf(prompt)
+            response = await query_groq(full_prompt)
 
         await message.reply(response[:1900])
 
@@ -111,4 +112,3 @@ async def start_bot():
 
 if __name__ == "__main__":
     asyncio.run(start_bot())
-
